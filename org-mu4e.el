@@ -99,8 +99,8 @@ searched and removed.
 See `util/org-remove-list-items-matching-re-from-buffer' and
 `util/org-remove-subtrees-matching-re'."
   ;; operates on current buffer
-  (let ((state-re (concat "^ *- +State *\"" org-todo-regexp))
-        (notes-re "^ *- +\\[note\\]"))
+  (let ((state-re (concat "^State *\"" org-todo-regexp))
+        (notes-re "^[^ ]*\\[note\\]"))
     (util/org-remove-list-items-matching-re-from-buffer
      (string-join (list state-re notes-re) "\\|"))))
 
@@ -115,25 +115,33 @@ URL `https://github.com/akshaybadola/ref-man/blob/master/ref-man-remote.el'."
            (file (replace-regexp-in-string
                   "\\[\\|\\]" "" (org-entry-get (point) "PDF_FILE")))
            (link (gethash file cache)))
-      (goto-char (cdr pblock))
-      (end-of-line)
-      (open-line 1)
-      (forward-line)
-      (indent-relative)
       (unless link
-        (error "File %s not in cache" file))
-      (insert "- gdrive_link: " link))))
+        (user-error "File %s not in cache" file))
+      (save-restriction
+        (util/org-narrow-to-heading-and-body)
+        (let ((link-str (concat "- gdrive_link: " link)))
+          (unless (string-match-p (regexp-quote link-str) (buffer-string))
+            (goto-char (cdr pblock))
+            (end-of-line)
+            (open-line 1)
+            (forward-line)
+            (indent-relative)
+            (insert "- gdrive_link: " link)))))))
 
 (defun org-mu4e-move-urls-from-property-drawer-to-text ()
   "Move a URL from property drawer in current heading to text."
   (let ((pblock (org-get-property-block)))
-    (mapcar (lambda (x) (when (string-match-p "URL$" (car x))
-                          (goto-char (cdr pblock))
-                          (end-of-line)
-                          (open-line 1)
-                          (forward-line)
-                          (indent-relative)
-                          (insert "- " (downcase (car x)) ": " (cdr x))))
+    (seq-do (lambda (x) (when (string-match-p "URL$" (car x))
+                          (save-restriction
+                            (util/org-narrow-to-heading-and-body)
+                            (let ((link-str (concat "- " (downcase (car x)) ": " (cdr x))))
+                              (unless (string-match-p (regexp-quote link-str) (buffer-string))
+                                (goto-char (cdr pblock))
+                                (end-of-line)
+                                (open-line 1)
+                                (forward-line)
+                                (indent-relative)
+                                (insert link-str))))))
             (org-entry-properties))))
 
 (defun org-mu4e-insert-urls-in-properties-to-body ()
@@ -185,6 +193,7 @@ on the current buffer.
 
 With a single prefix arg `C-u' export to an existing
 `mu4e-compose' buffer with `org-mu4e-mime-htmlize'."
+  (org-mu4e-load-links-cache)
   (run-hooks 'org-mu4e-mail-subtree-postprocess-hooks)
   (let ((org-export-with-toc nil)
         (org-export-with-broken-links 'mark)
@@ -217,7 +226,7 @@ existing `mu4e-compose' buffer to insert the file."
         (org-export-with-toc nil))
     (with-current-buffer mu4e-export-buf
       (goto-char (point-min))
-      (insert buf-string)
+      (insert (concat buf-string "\n"))
       (org-mode)
       (run-hooks 'org-mu4e-mail-subtree-preprocess-hooks)
       (switch-to-buffer mu4e-export-buf)
